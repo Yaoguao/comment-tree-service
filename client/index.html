@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Комментарии</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .comment { margin-bottom: 10px; border-left: 2px solid #ccc; padding-left: 10px; }
+        .controls { margin-top: 5px; }
+        input[type=text] { padding: 4px; }
+        button { padding: 4px 8px; margin-left: 4px; }
+        input.error { border: 2px solid red; background-color: #ffe6e6; }
+        .reply-form { margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<h2>Поиск комментариев</h2>
+<input type="text" id="searchQuery" placeholder="Введите текст...">
+<button onclick="searchComments()">Найти</button>
+
+<h2>Дерево комментариев</h2>
+<div id="comments"></div>
+
+<h3>Добавить новый комментарий</h3>
+<input type="text" id="newAuthor" placeholder="Ваше имя">
+<input type="text" id="newContent" placeholder="Текст комментария">
+<button onclick="addComment()">Добавить</button>
+
+<script>
+    const API_BASE = "http://localhost:8080";
+
+    function renderComments(comments, parentId = null, container = null) {
+        if (!container) container = document.getElementById('comments');
+        container.innerHTML = '';
+        const roots = comments.filter(c => !c.parent_id || c.parent_id === parentId);
+        roots.forEach(c => appendComment(c, comments, container, 0));
+    }
+
+    async function loadComments(parentId = "", limit = 100, offset = 0) {
+        try {
+            const res = await fetch(`${API_BASE}/comments-search?limit=${limit}&offset=${offset}`);
+            const data = await res.json();
+            renderComments(data.comments);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    function appendComment(comment, allComments, container, level) {
+        const div = document.createElement('div');
+        div.className = 'comment';
+        div.style.marginLeft = (level * 20) + 'px';
+        div.innerHTML = `
+            <b>${comment.author}</b>: ${comment.content}
+            <div class="controls">
+                <button onclick="showReplyForm('${comment.id}')">Ответить</button>
+                <button onclick="deleteComment('${comment.id}')">Удалить</button>
+            </div>
+            <div class="reply-form" id="reply-${comment.id}" style="display:none;">
+                <input type="text" placeholder="Ваше имя" class="reply-author">
+                <input type="text" placeholder="Текст ответа" class="reply-content">
+                <button onclick="submitReply('${comment.id}')">Отправить</button>
+                <button onclick="cancelReply('${comment.id}')">Отмена</button>
+            </div>
+        `;
+        container.appendChild(div);
+
+        const children = allComments.filter(c => c.parent_id === comment.id);
+        children.forEach(child => appendComment(child, allComments, container, level + 1));
+    }
+
+    function showReplyForm(parentId) {
+        document.getElementById('reply-' + parentId).style.display = 'block';
+    }
+
+    function cancelReply(parentId) {
+        document.getElementById('reply-' + parentId).style.display = 'none';
+    }
+
+    async function addComment(parentId = null) {
+        const authorInput = document.getElementById('newAuthor');
+        const contentInput = document.getElementById('newContent');
+        const author = authorInput.value.trim();
+        const content = contentInput.value.trim();
+
+        authorInput.classList.remove('error');
+        contentInput.classList.remove('error');
+
+        let hasError = false;
+        if (!author) { authorInput.classList.add('error'); hasError = true; }
+        if (!content) { contentInput.classList.add('error'); hasError = true; }
+        if (hasError) return;
+
+        const payload = { author, content, parent_id: parentId };
+        try {
+            const res = await fetch(`${API_BASE}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!data.error) {
+                authorInput.value = '';
+                contentInput.value = '';
+                loadComments();
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function submitReply(parentId) {
+        const form = document.getElementById('reply-' + parentId);
+        const authorInput = form.querySelector('.reply-author');
+        const contentInput = form.querySelector('.reply-content');
+        const author = authorInput.value.trim();
+        const content = contentInput.value.trim();
+
+        authorInput.classList.remove('error');
+        contentInput.classList.remove('error');
+
+        let hasError = false;
+        if (!author) { authorInput.classList.add('error'); hasError = true; }
+        if (!content) { contentInput.classList.add('error'); hasError = true; }
+        if (hasError) return;
+
+        const payload = { author, content, parent_id: parentId };
+        try {
+            const res = await fetch(`${API_BASE}/comments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!data.error) loadComments();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function deleteComment(id) {
+        if (!confirm("Удалить этот комментарий и все ответы?")) return;
+        try {
+            const res = await fetch(`${API_BASE}/comments/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) loadComments();
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function searchComments() {
+        const query = document.getElementById('searchQuery').value.trim();
+        try {
+            const url = query === ""
+                ? `${API_BASE}/comments-search?parent=&limit=100&offset=0&sort=asc`
+                : `${API_BASE}/comments-search?query=${encodeURIComponent(query)}&limit=100&offset=0`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+            renderComments(data.comments);
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    loadComments();
+</script>
+</body>
+</html>
